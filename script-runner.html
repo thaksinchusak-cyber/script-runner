@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ตัวรันสคริป</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#f6f6f3;--surface:#fff;--text:#1c1c1a;--muted:#6b6b66;--accent:#2f6fed;--accent-text:#fff;--border:#dcdcd5;--err:#c62828;--out:#f0efe9}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161615;--surface:#222221;--text:#ecebe6;--muted:#9a9993;--accent:#5b92ff;--accent-text:#0b0b0b;--border:#383836;--err:#ff7b72;--out:#1b1b1a}}
+:root[data-theme="dark"]{--bg:#161615;--surface:#222221;--text:#ecebe6;--muted:#9a9993;--accent:#5b92ff;--accent-text:#0b0b0b;--border:#383836;--err:#ff7b72;--out:#1b1b1a}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Noto Sans Thai",sans-serif}
+.wrap{max-width:720px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:0 0 12px}
+.tabs{display:flex;gap:8px;margin-bottom:10px}
+.tab{flex:1;padding:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:10px;font:inherit;font-weight:600}
+.tab[aria-pressed="true"]{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+textarea{width:100%;height:240px;resize:vertical;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);font:14px/1.5 ui-monospace,Menlo,Consolas,monospace;tab-size:2}
+.row{display:flex;gap:8px;margin:10px 0}
+.btn{padding:12px 16px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit}
+.run{flex:1;background:var(--accent);color:var(--accent-text);border-color:var(--accent);font-weight:700}
+.label{font-size:13px;color:var(--muted);margin:12px 0 4px;display:flex;justify-content:space-between}
+pre{margin:0;padding:12px;min-height:120px;max-height:50vh;overflow:auto;background:var(--out);border:1px solid var(--border);border-radius:10px;font:14px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word}
+.e{color:var(--err)}
+.snips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.chip{padding:6px 10px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text);font-size:13px}
+.note{font-size:12px;color:var(--muted);margin-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>▶ ตัวรันสคริป</h1>
+  <div class="tabs">
+    <button class="tab" id="t-js" aria-pressed="true">JavaScript</button>
+    <button class="tab" id="t-lua" aria-pressed="false">Lua</button>
+  </div>
+  <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>
+  <div class="row">
+    <button class="btn run" id="run">รัน</button>
+    <button class="btn" id="save">บันทึก</button>
+    <button class="btn" id="clear">ล้างผลลัพธ์</button>
+  </div>
+  <div class="label"><span>ผลลัพธ์</span><span id="status"></span></div>
+  <pre id="out"></pre>
+  <div class="label"><span>สคริปที่บันทึกไว้</span></div>
+  <div class="snips" id="snips"></div>
+  <p class="note">รันในเบราว์เซอร์ทั้งหมด ไม่ส่งโค้ดออกไปที่ไหน JavaScript หยุดอัตโนมัติถ้าเกิน 5 วินาที</p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fengari-web/0.1.4/fengari-web.js"></script>
+<script>
+const SAMPLES = {
+  js: "// JavaScript (รองรับ await)\nconst nums = [1,2,3,4,5];\nconsole.log(\"ผลรวม:\", nums.reduce((a,b)=>a+b,0));\nawait new Promise(r => setTimeout(r, 300));\nconsole.log(\"เสร็จแล้ว\");",
+  lua: "-- Lua\nlocal function fib(n)\n  if n < 2 then return n end\n  return fib(n-1) + fib(n-2)\nend\nfor i = 1, 10 do\n  print(i, fib(i))\nend"
+};
+let lang = "js";
+const $ = id => document.getElementById(id);
+const code = $("code"), out = $("out"), status = $("status");
+
+function store(k, v){ try{ if(v===undefined) return localStorage.getItem(k); localStorage.setItem(k, v);}catch(e){ return null; } }
+function loadSnips(){ try{ return JSON.parse(store("snips")||"[]"); }catch(e){ return []; } }
+
+function setLang(l){
+  lang = l;
+  $("t-js").setAttribute("aria-pressed", l==="js");
+  $("t-lua").setAttribute("aria-pressed", l==="lua");
+  code.value = SAMPLES[l];
+}
+$("t-js").onclick = () => setLang("js");
+$("t-lua").onclick = () => setLang("lua");
+$("clear").onclick = () => { out.textContent = ""; status.textContent = ""; };
+
+function print(text, err){
+  const s = document.createElement("span");
+  if(err) s.className = "e";
+  s.textContent = text + "\n";
+  out.appendChild(s);
+}
+const fmt = a => a.map(x => typeof x === "object" && x !== null ? (()=>{try{return JSON.stringify(x)}catch(e){return String(x)}})() : String(x)).join(" ");
+
+const workerSrc = `
+const AF = Object.getPrototypeOf(async function(){}).constructor;
+self.onmessage = async e => {
+  const send = (t, m) => self.postMessage({t, m});
+  const f = a => a.map(x => typeof x==="object"&&x!==null ? (()=>{try{return JSON.stringify(x)}catch(_){return String(x)}})() : String(x)).join(" ");
+  const con = { log:(...a)=>send("l",f(a)), info:(...a)=>send("l",f(a)), warn:(...a)=>send("l",f(a)), error:(...a)=>send("e",f(a)) };
+  try { const r = await new AF("console", e.data)(con); if(r!==undefined) send("l","→ "+f([r])); send("d"); }
+  catch(err){ send("e", String(err && err.stack ? err.message : err)); send("d"); }
+};`;
+
+function runJS(src){
+  return new Promise(resolve => {
+    let w;
+    try{ w = new Worker(URL.createObjectURL(new Blob([workerSrc], {type:"text/javascript"}))); }
+    catch(e){ return runJSMain(src).then(resolve); }
+    const timer = setTimeout(() => { w.terminate(); print("⏱ หยุดการทำงาน: เกิน 5 วินาที", true); resolve(); }, 5000);
+    w.onmessage = ev => {
+      const {t, m} = ev.data;
+      if(t==="l") print(m); else if(t==="e") print(m, true);
+      else { clearTimeout(timer); w.terminate(); resolve(); }
+    };
+    w.onerror = () => { clearTimeout(timer); w.terminate(); runJSMain(src).then(resolve); };
+    w.postMessage(src);
+  });
+}
+async function runJSMain(src){
+  const AF = Object.getPrototypeOf(async function(){}).constructor;
+  const con = { log:(...a)=>print(fmt(a)), info:(...a)=>print(fmt(a)), warn:(...a)=>print(fmt(a)), error:(...a)=>print(fmt(a),true) };
+  try{ const r = await new AF("console", src)(con); if(r!==undefined) print("→ "+fmt([r])); }
+  catch(e){ print(String(e.message||e), true); }
+}
+function runLua(src){
+  if(typeof fengari === "undefined"){ print("โหลดตัวแปล Lua ไม่สำเร็จ", true); return; }
+  const orig = console.log;
+  console.log = (...a) => print(a.join(" "));
+  try{ fengari.load(src)(); }
+  catch(e){ print(String(e.message||e), true); }
+  finally{ console.log = orig; }
+}
+
+$("run").onclick = async () => {
+  const btn = $("run"); btn.disabled = true;
+  status.textContent = "กำลังรัน…";
+  const t0 = performance.now();
+  print("— " + (lang==="js" ? "JavaScript" : "Lua") + " —");
+  if(lang==="js") await runJS(code.value); else runLua(code.value);
+  status.textContent = Math.round(performance.now()-t0) + " ms";
+  btn.disabled = false;
+  out.scrollTop = out.scrollHeight;
+};
+
+function renderSnips(){
+  const box = $("snips"); box.innerHTML = "";
+  const list = loadSnips();
+  if(!list.length){ box.textContent = "ยังไม่มี"; box.style.color = "var(--muted)"; return; }
+  list.forEach((s, i) => {
+    const b = document.createElement("button");
+    b.className = "chip"; b.textContent = s.name;
+    b.onclick = () => { setLang(s.lang); code.value = s.code; };
+    b.oncontextmenu = ev => { ev.preventDefault(); list.splice(i,1); store("snips", JSON.stringify(list)); renderSnips(); };
+    let t; b.ontouchstart = () => { t = setTimeout(() => { if(confirm("ลบ “"+s.name+"” ?")){ list.splice(i,1); store("snips", JSON.stringify(list)); renderSnips(); } }, 700); };
+    b.ontouchend = b.ontouchmove = () => clearTimeout(t);
+    box.appendChild(b);
+  });
+}
+$("save").onclick = () => {
+  const name = prompt("ตั้งชื่อสคริป");
+  if(!name) return;
+  const list = loadSnips();
+  list.push({name, lang, code: code.value});
+  store("snips", JSON.stringify(list));
+  renderSnips();
+};
+
+code.addEventListener("keydown", e => {
+  if(e.key === "Tab"){ e.preventDefault(); const s = code.selectionStart; code.setRangeText("  ", s, code.selectionEnd, "end"); }
+});
+setLang("js");
+renderSnips();
+</script>
+</body>
+</html>
